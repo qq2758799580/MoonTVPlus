@@ -190,6 +190,8 @@ export default async function RootLayout({
     ENABLE_MOVIE_REQUEST: enableMovieRequest,
     WEB_LIVE_ENABLED: webLiveEnabled,
     CUSTOM_AD_FILTER_VERSION: customAdFilterVersion,
+    FESTIVE_EFFECT_ENABLED:
+      process.env.FESTIVE_EFFECT_ENABLED === 'true',
   };
 
   return (
