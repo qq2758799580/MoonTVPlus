@@ -5812,6 +5812,83 @@ function PlayPageClient() {
         setPlayerReady(true);
         console.log('[PlayPage] Player ready, triggering sync setup');
 
+        // 应用进度条图标配置 - 尽早执行
+        const applyProgressThumbConfig = () => {
+          try {
+            const config = (window as any).RUNTIME_CONFIG;
+
+            if (!config || config.PROGRESS_THUMB_TYPE === 'default') {
+              // 使用默认样式，移除自定义样式
+              const oldStyle = document.getElementById('custom-progress-thumb-style');
+              if (oldStyle) oldStyle.remove();
+              return;
+            }
+
+            let thumbUrl = '';
+            let thumbColor = '#22c55e'; // 默认绿色
+
+            if (config.PROGRESS_THUMB_TYPE === 'preset' && config.PROGRESS_THUMB_PRESET_ID) {
+              const presetConfig: Record<string, { url: string; color: string }> = {
+                renako: { url: '/icons/q/renako.png', color: '#ec4899' }, // 粉色
+              };
+              const preset = presetConfig[config.PROGRESS_THUMB_PRESET_ID];
+              if (preset) {
+                thumbUrl = preset.url;
+                thumbColor = preset.color;
+              }
+            } else if (config.PROGRESS_THUMB_TYPE === 'custom' && config.PROGRESS_THUMB_CUSTOM_URL) {
+              thumbUrl = config.PROGRESS_THUMB_CUSTOM_URL;
+            }
+
+            // 修改 ArtPlayer 的主题色
+            if (artPlayerRef.current) {
+              artPlayerRef.current.theme = thumbColor;
+            }
+
+            if (thumbUrl) {
+              // 根据预设ID确定尺寸
+              let width = '30px';
+              let height = '30px';
+              let marginLeft = '-15px';
+
+              // renako 图标特殊处理（288x404比例，放大1.25倍）
+              if (config.PROGRESS_THUMB_TYPE === 'preset' && config.PROGRESS_THUMB_PRESET_ID === 'renako') {
+                width = '26.875px'; // 21.5 * 1.25
+                height = '37.5px'; // 30 * 1.25
+                marginLeft = '-13.4375px'; // 10.75 * 1.25
+              }
+
+              // 动态设置背景图片
+              const style = document.createElement('style');
+              style.id = 'custom-progress-thumb-style';
+              style.textContent = `
+                /* 替换默认的进度条圆点为自定义图标 */
+                .art-video-player .art-progress-indicator {
+                  width: ${width} !important;
+                  height: ${height} !important;
+                  background-image: url('${thumbUrl}') !important;
+                  background-size: contain !important;
+                  background-repeat: no-repeat !important;
+                  background-position: center !important;
+                  background-color: transparent !important;
+                  border-radius: 0 !important;
+                  margin-left: ${marginLeft} !important;
+                }
+              `;
+
+              // 移除旧样式
+              const oldStyle = document.getElementById('custom-progress-thumb-style');
+              if (oldStyle) oldStyle.remove();
+
+              document.head.appendChild(style);
+            }
+          } catch (error) {
+            console.error('[进度条图标] 应用配置失败:', error);
+          }
+        };
+
+        applyProgressThumbConfig();
+
         // 添加字幕切换功能
         const currentSubtitles = detailRef.current?.subtitles?.[currentEpisodeIndex] || [];
         if (currentSubtitles.length > 0 && artPlayerRef.current) {
@@ -6031,7 +6108,7 @@ function PlayPageClient() {
               saveDanmakuDisplayState(false);
             });
           }
-         
+
         }
 
         // 播放器就绪后，如果正在播放则请求 Wake Lock
