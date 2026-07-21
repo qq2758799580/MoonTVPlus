@@ -6,12 +6,18 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { AdminConfig } from '@/lib/admin.types';
-import { AnimeSubscription } from '@/types/anime-subscription';
+import { AnimeSubscription, AnimeSubscriptionDownloadTool } from '@/types/anime-subscription';
 
 interface AnimeSubscriptionComponentProps {
   config: AdminConfig | null;
   refreshConfig: () => Promise<void>;
 }
+
+const downloadToolOptions: Array<{ value: AnimeSubscriptionDownloadTool; label: string }> = [
+  { value: 'aria2', label: 'aria2' },
+  { value: 'qBittorrent', label: 'qBittorrent' },
+  { value: 'Transmission', label: 'Transmission' },
+];
 
 // Switch 组件
 const Switch = ({ checked, onChange, disabled }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) => (
@@ -141,6 +147,7 @@ export default function AnimeSubscriptionComponent({
   refreshConfig,
 }: AnimeSubscriptionComponentProps) {
   const [enabled, setEnabled] = useState(false);
+  const [downloadTool, setDownloadTool] = useState<AnimeSubscriptionDownloadTool>('aria2');
   const [subscriptions, setSubscriptions] = useState<AnimeSubscription[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -172,7 +179,8 @@ export default function AnimeSubscriptionComponent({
   const [formData, setFormData] = useState({
     title: '',
     filterText: '',
-    source: 'mikan' as 'acgrip' | 'mikan' | 'dmhy',
+    excludeText: '',
+    source: 'mikan' as 'acgrip' | 'mikan' | 'dmhy' | 'nyaa',
     lastEpisode: 0,
     enabled: true,
   });
@@ -181,6 +189,7 @@ export default function AnimeSubscriptionComponent({
   useEffect(() => {
     if (config?.AnimeSubscriptionConfig) {
       setEnabled(config.AnimeSubscriptionConfig.Enabled || false);
+      setDownloadTool(config.AnimeSubscriptionConfig.DownloadTool || 'aria2');
       setSubscriptions(config.AnimeSubscriptionConfig.Subscriptions || []);
     }
   }, [config]);
@@ -190,6 +199,7 @@ export default function AnimeSubscriptionComponent({
     setFormData({
       title: '',
       filterText: '',
+      excludeText: '',
       source: 'mikan',
       lastEpisode: 0,
       enabled: true,
@@ -205,7 +215,7 @@ export default function AnimeSubscriptionComponent({
       const response = await fetch('/api/admin/anime-subscription/toggle', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: newEnabled }),
+        body: JSON.stringify({ enabled: newEnabled, downloadTool }),
       });
 
       if (!response.ok) {
@@ -225,6 +235,35 @@ export default function AnimeSubscriptionComponent({
     }
   };
 
+  const handleDownloadToolChange = async (newDownloadTool: AnimeSubscriptionDownloadTool) => {
+    const previousDownloadTool = downloadTool;
+    setDownloadTool(newDownloadTool);
+
+    try {
+      setLoading(true);
+      const response = await fetch('/api/admin/anime-subscription/toggle', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, downloadTool: newDownloadTool }),
+      });
+
+      if (!response.ok) {
+        throw new Error('保存下载方式失败');
+      }
+
+      await refreshConfig();
+    } catch (error) {
+      setDownloadTool(previousDownloadTool);
+      showAlert({
+        type: 'error',
+        title: '保存失败',
+        message: error instanceof Error ? error.message : '保存下载方式失败',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 开始添加
   const handleAdd = () => {
     resetForm();
@@ -236,6 +275,7 @@ export default function AnimeSubscriptionComponent({
     setFormData({
       title: sub.title,
       filterText: sub.filterText,
+      excludeText: sub.excludeText || '',
       source: sub.source,
       lastEpisode: sub.lastEpisode,
       enabled: sub.enabled,
@@ -408,12 +448,31 @@ export default function AnimeSubscriptionComponent({
   return (
     <div className='space-y-6'>
       {/* 顶部控制 */}
-      <div className='flex items-center justify-between'>
-        <div className='flex items-center gap-3'>
-          <span className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-            启用追番功能
-          </span>
-          <Switch checked={enabled} onChange={handleToggleEnabled} disabled={loading} />
+      <div className='flex flex-col gap-4 md:flex-row md:items-center md:justify-between'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6'>
+          <div className='flex items-center gap-3'>
+            <span className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+              启用追番功能
+            </span>
+            <Switch checked={enabled} onChange={handleToggleEnabled} disabled={loading} />
+          </div>
+          <div className='flex items-center gap-3'>
+            <label className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+              下载方式
+            </label>
+            <select
+              value={downloadTool}
+              onChange={(e) => handleDownloadToolChange(e.target.value as AnimeSubscriptionDownloadTool)}
+              disabled={loading}
+              className='min-w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50'
+            >
+              {downloadToolOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <button
           onClick={handleAdd}
@@ -433,6 +492,7 @@ export default function AnimeSubscriptionComponent({
             <p>• 定时任务会自动检查订阅更新</p>
             <p>• 下载路径：OpenList离线下载根目录/番剧名称/</p>
             <p>• 过滤关键词支持多个，用逗号分隔，只会下载包含这些关键字的资源，可以用来过滤字幕组或是字幕种类</p>
+            <p>• 排除关键词支持多个，用逗号分隔，标题包含任一关键词则跳过，例如：先行版,预告,PV</p>
             <p>• 当前集数：已看到第几集，只下载更新的集数</p>
           </div>
         </div>
@@ -478,9 +538,24 @@ export default function AnimeSubscriptionComponent({
                   className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500'
                 />
                 <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-                  多个关键词用逗号分隔
+                  多个关键词用逗号分隔，需全部包含
                 </p>
               </div>
+            </div>
+            <div>
+              <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'>
+                排除关键词
+              </label>
+              <input
+                type='text'
+                value={formData.excludeText}
+                onChange={(e) => setFormData({ ...formData, excludeText: e.target.value })}
+                placeholder='先行版,预告,PV'
+                className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500'
+              />
+              <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+                可选；多个关键词用逗号分隔，标题包含任一则跳过
+              </p>
             </div>
             <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
               <div>
@@ -495,6 +570,7 @@ export default function AnimeSubscriptionComponent({
                   <option value='mikan'>蜜柑 (Mikan)</option>
                   <option value='acgrip'>ACG.RIP</option>
                   <option value='dmhy'>动漫花园 (DMHY)</option>
+                  <option value='nyaa'>Nyaa</option>
                 </select>
               </div>
               <div>
@@ -563,11 +639,12 @@ export default function AnimeSubscriptionComponent({
                       {sub.title}
                     </h3>
                     <span className='px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'>
-                      {sub.source === 'acgrip' ? 'ACG.RIP' : sub.source === 'mikan' ? '蜜柑' : '动漫花园'}
+                      {sub.source === 'acgrip' ? 'ACG.RIP' : sub.source === 'mikan' ? '蜜柑' : sub.source === 'nyaa' ? 'Nyaa' : '动漫花园'}
                     </span>
                   </div>
                   <div className='text-sm text-gray-600 dark:text-gray-400 space-y-1'>
                     <p>过滤条件：{sub.filterText}</p>
+                    {sub.excludeText ? <p>排除条件：{sub.excludeText}</p> : null}
                     <p>当前集数：第 {sub.lastEpisode} 集</p>
                     <p>上次检查：{formatTime(sub.lastCheckTime)}</p>
                   </div>
@@ -619,7 +696,7 @@ export default function AnimeSubscriptionComponent({
                       {sub.title}
                     </h3>
                     <span className='inline-block mt-1 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'>
-                      {sub.source === 'acgrip' ? 'ACG.RIP' : sub.source === 'mikan' ? '蜜柑' : '动漫花园'}
+                      {sub.source === 'acgrip' ? 'ACG.RIP' : sub.source === 'mikan' ? '蜜柑' : sub.source === 'nyaa' ? 'Nyaa' : '动漫花园'}
                     </span>
                   </div>
                   <Switch
@@ -630,6 +707,9 @@ export default function AnimeSubscriptionComponent({
                 </div>
                 <div className='text-sm text-gray-600 dark:text-gray-400 space-y-1'>
                   <p className='break-all'>过滤：{sub.filterText}</p>
+                  {sub.excludeText ? (
+                    <p className='break-all'>排除：{sub.excludeText}</p>
+                  ) : null}
                   <p>集数：第 {sub.lastEpisode} 集 · {formatTime(sub.lastCheckTime)}</p>
                 </div>
                 <div className='flex items-center gap-2 pt-1'>
